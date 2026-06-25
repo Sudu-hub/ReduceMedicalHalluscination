@@ -1,0 +1,19 @@
+MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
+
+OUTPUT_DIR = "07_Models/expert_lora"
+
+MAX_LENGTH = 1024
+
+BATCH_SIZE = 1
+
+GRADIENT_ACCUMULATION = 8
+
+LEARNING_RATE = 2e-4
+
+NUM_EPOCHS = 2
+
+LORA_R = 8
+
+LORA_ALPHA = 16
+
+LORA_DROPOUT = 0.05
