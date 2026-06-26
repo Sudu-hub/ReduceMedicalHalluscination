@@ -1,3 +1,8 @@
+import json
+import torch
+
+from datasets import Dataset
+
 from transformers import (
     AutoTokenizer,
     AutoModelForCausalLM,
@@ -11,18 +16,84 @@ from peft import (
     get_peft_model
 )
 
-from source_Code.lora.prepare_nonexpert_dataset import (
-    load_nonexpert_dataset
-)
+# =====================================================
+# CONFIGURATION
+# =====================================================
 
-from source_Code.lora.train_config import *
+MODEL_NAME = "Qwen/Qwen2.5-0.5B-Instruct"
+
+DATA_PATH = "/content/ReduceMedicalHalluscination/02_Data/non_expert_corpus/non_expert_500.json"
+
+OUTPUT_DIR = "/content/ReduceMedicalHalluscination/07_Models/nonexpert_lora"
+
+MAX_LENGTH = 1024
+
+BATCH_SIZE = 1
+
+GRADIENT_ACCUMULATION = 8
+
+LEARNING_RATE = 2e-4
+
+NUM_EPOCHS = 3
+
+LORA_R = 8
+
+LORA_ALPHA = 16
+
+LORA_DROPOUT = 0.05
 
 
+# =====================================================
+# LOAD DATASET
+# =====================================================
+
+def load_nonexpert_dataset():
+
+    with open(
+        DATA_PATH,
+        "r",
+        encoding="utf-8"
+    ) as f:
+
+        data = json.load(f)
+
+    samples = []
+
+    for item in data:
+
+        prompt = f"""Question:
+{item["question"]}
+
+Answer:
+"""
+
+        samples.append({
+
+            "text": prompt + item["long_answer"]
+
+        })
+
+    return Dataset.from_list(samples)
+
+
+print("=" * 60)
 print("Loading Dataset...")
+print("=" * 60)
 
 dataset = load_nonexpert_dataset()
 
+print(dataset)
+
+print(dataset[0])
+
+
+# =====================================================
+# TOKENIZER
+# =====================================================
+
+print("=" * 60)
 print("Loading Tokenizer...")
+print("=" * 60)
 
 tokenizer = AutoTokenizer.from_pretrained(
     MODEL_NAME
@@ -30,13 +101,33 @@ tokenizer = AutoTokenizer.from_pretrained(
 
 tokenizer.pad_token = tokenizer.eos_token
 
+
+# =====================================================
+# MODEL
+# =====================================================
+
+print("=" * 60)
 print("Loading Model...")
+print("=" * 60)
 
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME
+
+    MODEL_NAME,
+
+    torch_dtype=torch.float16,
+
+    device_map="auto"
+
 )
 
+
+# =====================================================
+# APPLY LORA
+# =====================================================
+
+print("=" * 60)
 print("Applying LoRA...")
+print("=" * 60)
 
 lora_config = LoraConfig(
 
@@ -51,20 +142,33 @@ lora_config = LoraConfig(
     task_type="CAUSAL_LM",
 
     target_modules=[
+
         "q_proj",
+
         "k_proj",
+
         "v_proj",
+
         "o_proj"
+
     ]
+
 )
 
 model = get_peft_model(
+
     model,
+
     lora_config
+
 )
 
-print(model.print_trainable_parameters())
+model.print_trainable_parameters()
 
+
+# =====================================================
+# TOKENIZATION
+# =====================================================
 
 def tokenize(example):
 
@@ -77,6 +181,7 @@ def tokenize(example):
         padding="max_length",
 
         max_length=MAX_LENGTH
+
     )
 
     tokens["labels"] = tokens["input_ids"].copy()
@@ -85,8 +190,16 @@ def tokenize(example):
 
 
 dataset = dataset.map(
-    tokenize
+    tokenize,
+    remove_columns=["text"]
 )
+
+print(dataset.column_names)
+
+
+# =====================================================
+# TRAINING ARGUMENTS
+# =====================================================
 
 training_args = TrainingArguments(
 
@@ -104,8 +217,24 @@ training_args = TrainingArguments(
 
     save_strategy="epoch",
 
-    report_to="none"
+    report_to="none",
+
+    fp16=True,
+
+    remove_unused_columns=False,
+
+    optim="adamw_torch",
+
+    lr_scheduler_type="cosine",
+
+    warmup_steps=50
+
 )
+
+
+# =====================================================
+# TRAINER
+# =====================================================
 
 trainer = Trainer(
 
@@ -115,17 +244,36 @@ trainer = Trainer(
 
     train_dataset=dataset,
 
+    processing_class=tokenizer,
+
     data_collator=DataCollatorForLanguageModeling(
-        tokenizer,
+
+        tokenizer=tokenizer,
+
         mlm=False
+
     )
+
 )
 
-print("Starting Expert LoRA Training...")
+# =====================================================
+# TRAIN
+# =====================================================
+
+print("=" * 60)
+print("Starting NonExpert LoRA Training...")
+print("=" * 60)
 
 trainer.train()
 
-print("Saving LoRA...")
+
+# =====================================================
+# SAVE MODEL
+# =====================================================
+
+print("=" * 60)
+print("Saving NonExpert LoRA...")
+print("=" * 60)
 
 model.save_pretrained(
     OUTPUT_DIR
@@ -135,4 +283,6 @@ tokenizer.save_pretrained(
     OUTPUT_DIR
 )
 
-print("Training Complete!")
+print("=" * 60)
+print("Training Completed Successfully!")
+print("=" * 60)
