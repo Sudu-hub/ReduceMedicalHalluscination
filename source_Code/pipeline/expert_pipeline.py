@@ -9,6 +9,15 @@ from peft import (
     PeftModel
 )
 
+from source_Code.retrieval.retriever import (
+    DualRetriever
+)
+
+from source_Code.llm.prompt_builder import (
+    PromptBuilder
+)
+
+
 BASE_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 
 LORA_PATH = "07_Models/expert_lora"
@@ -34,19 +43,10 @@ expert_model = PeftModel.from_pretrained(
     LORA_PATH
 )
 
-print("Expert LoRA Loaded Successfully.\n")
+retriever = DualRetriever()
 
 
-def generate(model, question):
-
-    prompt = f"""
-You are a medical AI assistant.
-
-Question:
-{question}
-
-Answer:
-"""
+def generate(model, prompt):
 
     inputs = tokenizer(
         prompt,
@@ -67,15 +67,12 @@ Answer:
 
         )
 
-    response = tokenizer.decode(
+    generated = outputs[0][inputs.input_ids.shape[1]:]
 
-        outputs[0],
-
+    return tokenizer.decode(
+        generated,
         skip_special_tokens=True
-
     )
-
-    return response
 
 
 while True:
@@ -87,24 +84,49 @@ while True:
     if question.lower() == "exit":
         break
 
-    print("\n" + "="*70)
+    retrieval = retriever.retrieve(
+        question
+    )
+
+    prompt = PromptBuilder.build_prompt(
+
+        question,
+
+        retrieval["expert"]
+
+    )
+
+    print("\n")
+    print("="*80)
+    print("TOP RETRIEVED DOCUMENT")
+    print("="*80)
+
+    print(
+        retrieval["expert"][0]["question"]
+    )
+
+    print()
+
+    print("="*80)
     print("BASE MODEL")
-    print("="*70)
+    print("="*80)
 
     print(
         generate(
             base_model,
-            question
+            prompt
         )
     )
 
-    print("\n" + "="*70)
-    print("EXPERT LoRA")
-    print("="*70)
+    print()
+
+    print("="*80)
+    print("EXPERT LORA")
+    print("="*80)
 
     print(
         generate(
             expert_model,
-            question
+            prompt
         )
     )
